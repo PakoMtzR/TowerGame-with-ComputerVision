@@ -2,3 +2,4 @@ venv
 example
 chat.py
 __pycache__
+best_score.txt

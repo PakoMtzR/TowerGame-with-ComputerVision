@@ -31,11 +31,13 @@ class Floor:
         self.y = y
         self.width = width 
         self.rect = pygame.Rect(self.x, self.y, self.width, Floor.height)
+        self.floor_sound = pygame.mixer.Sound("sounds/floor.mp3")
     
     def move(self, screen):
         self.x += Floor.velocity
         if self.x + self.width > screen.get_width() or self.x < 0:
             Floor.velocity *= -1
+            self.floor_sound.play()
         self.rect.x = self.x
 
     def draw(self, screen):
@@ -66,6 +68,8 @@ class Game:
         self.score = 0                  # Puntuacion
         self.camera_offset = 0          # Desplazamiento vertical de la cámara
         self.camera_limit = HEIGHT//2   # Límite para desplazar la cámara
+        self.best_score = self.load_best_score()
+        self.new_record_flag = False
 
         # Creamos el primer piso fijo
         base_floor_width = 300
@@ -79,10 +83,27 @@ class Game:
         self.blink_control_enable = False
         self.blink_detector = Blink_Detector()
 
+        # Cargar sonidos del juego
+        self.success_sound = pygame.mixer.Sound("sounds/success_1.mp3")
+        self.game_over_sound = pygame.mixer.Sound("sounds/gameover.mp3")
+
         # Textos no dinamicos
         self.game_over_text = font_25.render("Game Over!", True, WHITE)
         self.restart_message = font_25.render("Press SPACE to restart", True, WHITE)
+        self.new_record_message = font_25.render("New Best! :D", True, WHITE)
 
+    @staticmethod
+    def load_best_score():
+        try:
+            with open("best_score.txt", "r") as file:
+                return int(file.read())
+        except FileNotFoundError:
+            return 0
+
+    def save_best_score(self):
+        with open("best_score.txt", "w") as file:
+            file.write(str(self.best_score))
+    
     def add_new_moving_floor(self):
         # Crear un nuevo piso encima del último piso fijo
         last_floor = self.floors[-1]
@@ -110,6 +131,37 @@ class Game:
         # Eliminar pisos no visibles de la lista
         self.floors = [floor for floor in self.floors if floor.on_screen(self.screen)]
     
+    def stop_current_floor(self):
+        last_floor = self.floors[-1]
+        overlap = max(0, min(self.current_floor.x + self.current_floor.width, last_floor.x + last_floor.width) - max(self.current_floor.x, last_floor.x))
+        
+        if overlap > 0:
+            # Ajustar el ancho y posición del piso actual
+            self.current_floor.width = overlap
+            self.current_floor.x = max(self.current_floor.x, last_floor.x)
+            self.current_floor.rect.width = overlap
+            self.current_floor.rect.x = self.current_floor.x
+
+            # Agregar el piso actual a la lista de pisos fijos
+            self.floors.append(self.current_floor)
+
+            # Incrementar el puntaje y generar un nuevo piso en movimiento
+            self.score += 1
+            self.success_sound.play()
+            self.add_new_moving_floor()
+
+            # Actualizar la posición de la cámara
+            self.update_camera()
+        else:
+            # Terminar el juego si no hay solapamiento
+            self.game_over = True
+            self.game_over_sound.play()
+
+            if self.score > self.best_score:
+                self.new_record_flag = True
+                self.best_score = self.score
+                self.save_best_score()
+
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -133,36 +185,13 @@ class Game:
                 self.restart()
             else:
                 self.stop_current_floor()
-    
-    def stop_current_floor(self):
-        last_floor = self.floors[-1]
-        overlap = max(0, min(self.current_floor.x + self.current_floor.width, last_floor.x + last_floor.width) - max(self.current_floor.x, last_floor.x))
-        
-        if overlap > 0:
-            # Ajustar el ancho y posición del piso actual
-            self.current_floor.width = overlap
-            self.current_floor.x = max(self.current_floor.x, last_floor.x)
-            self.current_floor.rect.width = overlap
-            self.current_floor.rect.x = self.current_floor.x
-
-            # Agregar el piso actual a la lista de pisos fijos
-            self.floors.append(self.current_floor)
-
-            # Incrementar el puntaje y generar un nuevo piso en movimiento
-            self.score += 1
-            self.add_new_moving_floor()
-
-            # Actualizar la posición de la cámara
-            self.update_camera()
-        else:
-            # Terminar el juego si no hay solapamiento
-            self.game_over = True
 
     def restart(self):
         self.game_over = False
         self.floors = []                # Lista de pisos
         self.current_floor = None       # Piso en movimiento
         self.score = 0                  # Puntuacion
+        self.new_record_flag = False
 
         # Creamos el primer piso fijo
         base_floor_width = 300
@@ -201,9 +230,14 @@ class Game:
         if self.game_over:
             self.screen.blit(self.game_over_text, (self.screen.get_width() // 2 - self.game_over_text.get_width() // 2, 70))
             self.screen.blit(self.restart_message, (self.screen.get_width() // 2 - self.restart_message.get_width() // 2, 95))
+
+            if self.new_record_flag:
+                self.screen.blit(self.new_record_message, (self.screen.get_width() // 2 - self.new_record_message.get_width() // 2, 120))
         
         cv_control = font_15.render(f"[Q] Computer Vision - {self.blink_control_enable}", True, WHITE)
         self.screen.blit(cv_control, (5,5))
+        best_score_text = font_15.render(f"Best: {self.best_score}", True, WHITE)
+        self.screen.blit(best_score_text, (5,20))
 
         # Escribir el Score
         score_text = font.render(str(self.score), True, WHITE)
